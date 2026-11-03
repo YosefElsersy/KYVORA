@@ -188,7 +188,7 @@ All dependencies are listed in `requirements.txt`:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/KYVORA.git
+git clone https://github.com/YosefElsersy/KYVORA.git
 cd KYVORA
 ```
 
