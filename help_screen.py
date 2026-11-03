@@ -49,13 +49,13 @@ def _build() -> None:
         return
 
     L = _lang_mod.get()
-    is_tr = L.code == "tr"
+    is_ar = L.is_rtl
 
     root = tk.Tk()
     with _LOCK:
         _win[0] = root
 
-    root.title("GestureMouse - " + ("Nasil Kontrol Edilir?" if is_tr else "How To Control?"))
+    root.title(f"KYVORA \u2014 {L.t('help_title')}")
     root.configure(bg=_BG)
     root.resizable(False, False)
     root.attributes("-topmost", True)
@@ -83,28 +83,28 @@ def _build() -> None:
     f_close  = ("Consolas", 10, "bold")
 
     # Jest verileri
-    if is_tr:
+    if is_ar:
         gestures = [
-            ("[1]", "IMLEC",    "☝",  "Isaret parmagi",          "Fareyi hareket ettir",
-             _GREEN,  "Sadece isaret parmagi yukari,\ndiger parmaklar asagi."),
-            ("[2]", "SOL TIK",  "🤌", "Pinch",                   "Sol tikla - dwell bekle",
-             _AMBER,  "Basparmak ve isaret parmagi\nuclarini birlestir."),
-            ("[3]", "SAG TIK",  "✌",  "V isareti",               "Sag tikla - dwell bekle",
-             _BLUE,   "Isaret ve orta parmak acik,\nyuzuk ve serce kapali."),
-            ("[4]", "KAYDIRMA", "🖐",  "4 Parmak",                "Kaydir - dwell bekle",
-             _PURPLE, "Isaret, orta, yuzuk, serce acik.\nBasparmak kapali.\nDolduktan sonra el yukari/asagi."),
-            ("[5]", "KLAVYE",   "🖖",  "3 Parmak",                "Klavyeyi ac/kapat",
-             _PINK,   "Isaret, orta, yuzuk acik.\nSerce ve basparmak kapali."),
-            ("[6]", "KAMERA",   "✊",  "Yumruk",                  "Kamera on/arka",
-             _RED,    "Tum parmaklar kapali.\nSiki bir yumruk yap."),
-            ("[7]", "ALT+TAB",  "🕷",  "Spider",                  "Pencere degistir",
-             _ORANGE, "Orta ve yuzuk basparmaga deger,\nisaret ve serce yukari ve duz."),
+            ("[1]", L.t("help_1_action"), "☝",  L.t("help_1_pose"), L.t("hud_move"),
+             _GREEN,  L.t("help_1_desc")),
+            ("[2]", L.t("help_2_action"), "🤌", L.t("help_2_pose"), L.t("hud_lclick"),
+             _AMBER,  L.t("help_2_desc")),
+            ("[3]", L.t("help_3_action"), "✌",  L.t("help_3_pose"), L.t("hud_rclick"),
+             _BLUE,   L.t("help_3_desc")),
+            ("[4]", L.t("help_4_action"), "🖐",  L.t("help_4_pose"), L.t("hud_scroll"),
+             _PURPLE, L.t("help_4_desc")),
+            ("[5]", L.t("help_5_action"), "🖖",  L.t("help_5_pose"), L.t("hud_keyboard"),
+             _PINK,   L.t("help_5_desc")),
+            ("[6]", L.t("help_6_action"), "✊",  L.t("help_6_pose"), L.t("hud_cam"),
+             _RED,    L.t("help_6_desc")),
+            ("[7]", L.t("help_7_action"), "🐺",  L.t("help_7_pose"), L.t("hud_wolf"),
+             _ORANGE, L.t("help_7_desc")),
         ]
-        title_text = "NASIL KONTROL EDILIR?"
-        mode_tr    = "Tum jestler dwell sistemi kullanir.\nIsaret parmagi hareket anliktir."
-        key_hint   = "C = Kalibrasyon    H = El degistir    Q = Cik"
-        close_lbl  = "Kapat"
-        dwell_lbl  = "DWELL SURESI"
+        title_text = "كيفية الاستخدام؟"
+        mode_tr    = "جميع الإيماءات تستخدم نظام الانتظار.\nتحريك إصبع السبابة فوري."
+        key_hint   = "C = معايرة    H = تبديل اليد    Q = خروج"
+        close_lbl  = "إغلاق"
+        dwell_lbl  = "مدة الانتظار"
     else:
         gestures = [
             ("[1]", "CURSOR",    "☝",  "Index Finger",            "Move the cursor",

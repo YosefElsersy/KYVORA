@@ -22,7 +22,7 @@
 
 KYVORA is a real-time gesture-controlled desktop application that replaces traditional mouse and keyboard input with hand gestures captured through a webcam. It uses Google's MediaPipe hand tracking to detect 21 hand landmarks and maps specific hand poses to computer actions such as cursor movement, clicking, scrolling, drag-and-drop, window switching, and on-screen keyboard control.
 
-The application features a modular desktop dashboard with detachable panels, a calibration wizard, Kalman-filtered cursor smoothing, adjustable gesture activation timing, a pause/resume system, audio feedback, and multi-language support (English and Turkish).
+The application features a modular desktop dashboard with detachable panels, a calibration wizard, Kalman-filtered cursor smoothing, adjustable gesture activation timing, a pause/resume system, audio feedback, and multi-language support (English and Arabic with RTL layout).
 
 ---
 
@@ -41,7 +41,7 @@ The application features a modular desktop dashboard with detachable panels, a c
 | **Audio Feedback** | Sound cues for gesture confirmation, hold, release, and errors |
 | **Safety** | PyAutoGUI failsafe — move cursor to top-left corner to stop |
 | **System Tray** | Background tray icon with quick access to calibration and quit |
-| **Multi-Language** | English and Turkish interface |
+| **Multi-Language** | English and Arabic interface with native RTL layout |
 | **Configuration** | JSON-based settings with runtime persistence |
 
 ---
@@ -220,7 +220,7 @@ python -m pip install -r requirements.txt
 python main.py
 ```
 
-On first launch, you will be prompted to choose a language (English or Turkish) and whether the camera preview should be visible.
+On first launch, you will be prompted to choose a language (English or Arabic) and whether the camera preview should be visible.
 
 ---
 
@@ -241,7 +241,7 @@ Settings are stored in `config.json` in the project directory. They can be edite
 | `kalman_process_noise` | `0.008` | Kalman filter process noise (lower = smoother cursor) |
 | `kalman_measurement_noise` | `0.15` | Kalman filter measurement noise (higher = smoother cursor) |
 | `pinch_threshold` | `0.28` | Pinch detection sensitivity (set automatically by calibration) |
-| `language` | — | Interface language: `"en"` or `"tr"` |
+| `language` | — | Interface language: `"en"` or `"ar"` |
 
 ---
 
@@ -294,7 +294,7 @@ KYVORA/
 ├── calibration.py       # 4-corner calibration wizard
 ├── vkeyboard.py         # Cross-platform on-screen keyboard launcher
 ├── config.py            # JSON-based configuration management
-├── lang.py              # Multi-language string definitions (EN/TR)
+├── lang.py              # Multi-language string definitions (EN/AR)
 ├── sound.py             # Cross-platform audio feedback
 ├── tray.py              # System tray icon (pystray)
 ├── config.json          # User settings (auto-generated)

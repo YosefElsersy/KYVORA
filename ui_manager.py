@@ -3,6 +3,7 @@ KYVORA — Modular UI Manager
 ============================
 Single-window Tkinter application with embedded camera preview.
 Supports detachable / dockable panels for flexible workspace arrangement.
+Supports RTL (Arabic) and LTR (English) layouts.
 
 Architecture:
   Main thread  : Tkinter mainloop (this class)
@@ -19,13 +20,35 @@ Panels (all detachable):
 """
 
 import tkinter as tk
+import tkinter.font as tkfont
 import threading
 import queue
 import time
 import os
+import platform
 import cv2
 from PIL import Image, ImageTk
+from config import Config
 import lang as _lang_mod
+
+
+# ── RTL / Font helpers ───────────────────────────────────────────────────────
+
+def _pick_ar_font() -> str:
+    """Return best available Arabic-capable font on this platform."""
+    _os = platform.system()
+    if _os == "Windows":
+        candidates = ["Segoe UI", "Tahoma", "Arial"]
+    elif _os == "Darwin":
+        candidates = ["Geeza Pro", "Arial", "Helvetica"]
+    else:
+        candidates = ["Noto Sans Arabic", "DejaVu Sans", "Arial"]
+    # Tkinter has no direct font-enumeration until root exists;
+    # just return the first candidate — Tk falls back gracefully.
+    return candidates[0]
+
+
+_AR_FONT: str = ""  # resolved once root is created
 
 # ── KYVORA Color Palette ─────────────────────────────────────────────────────
 
@@ -80,6 +103,15 @@ _NOTIFY_KEYS = {
 _SEV_COLORS = {"success": _GREEN, "info": _CYAN, "warning": _AMBER, "error": _RED}
 
 
+def _font(size: int, bold: bool = False, mono: bool = True) -> tuple:
+    """Return a font tuple that supports Arabic when RTL is active."""
+    L = _lang_mod.get()
+    weight = "bold" if bold else "normal"
+    if L.is_rtl and not mono:
+        return (_AR_FONT or "Segoe UI", size, weight)
+    return ("Consolas", size, weight)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  Detachable Section Helper
 # ══════════════════════════════════════════════════════════════════════════════
@@ -103,16 +135,24 @@ class _DetachableSection:
         self.frame = tk.Frame(parent, bg=_CARD)
 
         # Title bar
+        L = _lang_mod.get()
+        rtl = L.is_rtl
+        title_side = "right" if rtl else "left"
+        btn_side = "left" if rtl else "right"
+        anchor = "e" if rtl else "w"
+        padx_title = (0, 12) if rtl else (12, 0)
+        padx_btn = (8, 0) if rtl else (0, 8)
+
         tbar = tk.Frame(self.frame, bg=_CARD)
         tbar.pack(fill="x")
-        tk.Label(tbar, text=title, font=("Consolas", 8, "bold"),
-                 fg=_CYAN, bg=_CARD, anchor="w"
-                 ).pack(side="left", padx=(12, 0), pady=(6, 2))
+        tk.Label(tbar, text=title, font=_font(8, bold=True, mono=False),
+                 fg=_CYAN, bg=_CARD, anchor=anchor
+                 ).pack(side=title_side, padx=padx_title, pady=(6, 2))
         self._btn = tk.Button(
             tbar, text="\u2b1c", font=("Consolas", 7),
             fg=_DIM, bg=_CARD, activebackground=_CARD, activeforeground=_CYAN,
             relief="flat", bd=0, cursor="hand2", command=self._toggle)
-        self._btn.pack(side="right", padx=(0, 8), pady=(6, 2))
+        self._btn.pack(side=btn_side, padx=padx_btn, pady=(6, 2))
 
         # Content area
         self._content = tk.Frame(self.frame, bg=_CARD)
@@ -158,21 +198,26 @@ class _DetachableSection:
         except Exception:
             pass
         # Top-bar in floating window with Always on Top + Dock
+        L = _lang_mod.get()
+        rtl = L.is_rtl
+        title_side = "right" if rtl else "left"
+        ctrl_side = "left" if rtl else "right"
+
         fbar = tk.Frame(self._toplevel, bg=_BG_HEADER)
         fbar.pack(fill="x")
-        tk.Label(fbar, text=self._title, font=("Consolas", 9, "bold"),
-                 fg=_CYAN, bg=_BG_HEADER).pack(side="left", padx=8, pady=4)
+        tk.Label(fbar, text=self._title, font=_font(9, bold=True, mono=False),
+                 fg=_CYAN, bg=_BG_HEADER).pack(side=title_side, padx=8, pady=4)
         self._top_var = tk.BooleanVar(value=self._topmost)
-        cb = tk.Checkbutton(fbar, text=_lang_mod.get().t("panel_always_top"),
-                            variable=self._top_var, font=("Consolas", 7),
+        cb = tk.Checkbutton(fbar, text=L.t("panel_always_top"),
+                            variable=self._top_var, font=_font(7, mono=False),
                             fg=_DIM, bg=_BG_HEADER, selectcolor=_CARD,
                             activebackground=_BG_HEADER, activeforeground=_DIM,
                             command=self._toggle_topmost)
-        cb.pack(side="right", padx=8)
-        tk.Button(fbar, text=_lang_mod.get().t("panel_dock"),
-                  font=("Consolas", 8, "bold"), fg=_BG, bg=_CYAN,
+        cb.pack(side=ctrl_side, padx=8)
+        tk.Button(fbar, text=L.t("panel_dock"),
+                  font=_font(8, bold=True, mono=False), fg=_BG, bg=_CYAN,
                   relief="flat", bd=0, padx=6, pady=1,
-                  cursor="hand2", command=self.dock).pack(side="right", padx=4)
+                  cursor="hand2", command=self.dock).pack(side=ctrl_side, padx=4)
         tk.Frame(self._toplevel, height=1, bg=_BORDER).pack(fill="x")
         # Content
         fc = tk.Frame(self._toplevel, bg=_CARD)
@@ -221,7 +266,8 @@ class _DetachableSection:
 class UIManager:
     """Unified KYVORA application window with detachable panels."""
 
-    def __init__(self):
+    def __init__(self, cfg: Config | None = None):
+        self._cfg     = cfg or Config()
         self._q       = queue.Queue()
         self._frame_q = queue.Queue(maxsize=2)
         self._root    = None
@@ -234,6 +280,7 @@ class UIManager:
         self.on_quit         = None
         self.on_toggle_pause = None
         self.on_dwell_change = None
+        self.on_lang_change  = None
 
         # ── Widget references (set by panel builders, may be None) ────────
         # Camera
@@ -327,6 +374,7 @@ class UIManager:
     # ══════════════════════════════════════════════════════════════════════════
 
     def run(self) -> None:
+        global _AR_FONT
         self._root = tk.Tk()
         self._root.title("KYVORA")
         self._root.configure(bg=_BG)
@@ -334,6 +382,9 @@ class UIManager:
         self._root.geometry("1140x720")
         self._root.protocol("WM_DELETE_WINDOW", self._on_quit_click)
         self._running = True
+
+        # Resolve Arabic font now that Tk root exists
+        _AR_FONT = _pick_ar_font()
 
         try:
             logo_path = os.path.join(
@@ -406,13 +457,19 @@ class UIManager:
 
     def _build_header(self):
         L = _lang_mod.get()
+        rtl = L.is_rtl
         header = tk.Frame(self._root, bg=_BG_HEADER, height=52)
         header.pack(fill="x", side="top")
         header.pack_propagate(False)
 
-        # Left: Logo + Title
+        brand_side = "right" if rtl else "left"
+        ind_side = "left" if rtl else "right"
+        brand_padx = (0, 16) if rtl else (16, 0)
+        ind_padx = (16, 0) if rtl else (0, 16)
+
+        # Brand block: Logo + Title + Subtitle
         left = tk.Frame(header, bg=_BG_HEADER)
-        left.pack(side="left", padx=(16, 0))
+        left.pack(side=brand_side, padx=brand_padx)
         try:
             logo_path = os.path.join(
                 os.path.dirname(os.path.abspath(__file__)), "Logo.png")
@@ -420,94 +477,134 @@ class UIManager:
                 logo_img = Image.open(logo_path).resize((34, 34), Image.LANCZOS)
                 self._logo_photo = ImageTk.PhotoImage(logo_img)
                 tk.Label(left, image=self._logo_photo,
-                         bg=_BG_HEADER).pack(side="left", padx=(0, 10))
+                         bg=_BG_HEADER).pack(side=brand_side, padx=(8, 8) if rtl else (0, 10))
         except Exception:
             pass
         tk.Label(left, text="KYVORA", font=("Consolas", 18, "bold"),
-                 fg=_CYAN, bg=_BG_HEADER).pack(side="left")
-        tk.Label(left, text=L.t("startup_title"), font=("Consolas", 9),
+                 fg=_CYAN, bg=_BG_HEADER).pack(side=brand_side)
+        tk.Label(left, text=L.t("startup_title"), font=_font(9, mono=False),
                  fg=_DIMMER, bg=_BG_HEADER
-                 ).pack(side="left", padx=(12, 0), pady=(4, 0))
+                 ).pack(side=brand_side, padx=(0, 12) if rtl else (12, 0), pady=(4, 0))
 
-        # Right: indicators
+        # Indicators block
         right = tk.Frame(header, bg=_BG_HEADER)
-        right.pack(side="right", padx=(0, 16))
+        right.pack(side=ind_side, padx=ind_padx)
 
+        pack_ind = ind_side
         self._cal_dot = tk.Label(right, text="\u25cf", font=("Consolas", 8),
                                  fg=_DIMMER, bg=_BG_HEADER)
-        self._cal_dot.pack(side="right", padx=(4, 0))
+        self._cal_dot.pack(side=pack_ind, padx=(4, 0) if not rtl else (0, 4))
         self._lbl_cal = tk.Label(right, text=L.t("hud_cal_no"),
-                                 font=("Consolas", 8, "bold"),
+                                 font=_font(8, bold=True, mono=False),
                                  fg=_DIMMER, bg=_BG_HEADER)
-        self._lbl_cal.pack(side="right")
-        tk.Frame(right, width=16, bg=_BG_HEADER).pack(side="right")
+        self._lbl_cal.pack(side=pack_ind)
+        tk.Frame(right, width=16, bg=_BG_HEADER).pack(side=pack_ind)
 
         self._lbl_fps = tk.Label(right, text="0 fps", font=("Consolas", 9),
                                  fg=_DIM, bg=_BG_HEADER)
-        self._lbl_fps.pack(side="right")
-        tk.Frame(right, width=16, bg=_BG_HEADER).pack(side="right")
+        self._lbl_fps.pack(side=pack_ind)
+        tk.Frame(right, width=16, bg=_BG_HEADER).pack(side=pack_ind)
 
         self._cam_dot = tk.Label(right, text="\u25cf", font=("Consolas", 10),
                                  fg=_GREEN, bg=_BG_HEADER)
-        self._cam_dot.pack(side="right", padx=(0, 4))
-        self._lbl_cam_status = tk.Label(right, text="Camera",
-                                         font=("Consolas", 8, "bold"),
+        self._cam_dot.pack(side=pack_ind, padx=(0, 4) if not rtl else (4, 0))
+        self._lbl_cam_status = tk.Label(right, text=L.t("hud_cam"),
+                                         font=_font(8, bold=True, mono=False),
                                          fg=_GREEN, bg=_BG_HEADER)
-        self._lbl_cam_status.pack(side="right")
-        tk.Frame(right, width=16, bg=_BG_HEADER).pack(side="right")
+        self._lbl_cam_status.pack(side=pack_ind)
+        tk.Frame(right, width=16, bg=_BG_HEADER).pack(side=pack_ind)
 
         self._header_status_dot = tk.Label(right, text="\u25cf",
                                            font=("Consolas", 10),
                                            fg=_GREEN, bg=_BG_HEADER)
-        self._header_status_dot.pack(side="right", padx=(0, 4))
-        self._lbl_header_status = tk.Label(right, text="ACTIVE",
-                                           font=("Consolas", 8, "bold"),
+        self._header_status_dot.pack(side=pack_ind, padx=(0, 4) if not rtl else (4, 0))
+        self._lbl_header_status = tk.Label(right, text=L.t("hud_active"),
+                                           font=_font(8, bold=True, mono=False),
                                            fg=_GREEN, bg=_BG_HEADER)
-        self._lbl_header_status.pack(side="right")
+        self._lbl_header_status.pack(side=pack_ind)
+
+        # In-App Language Selector (Segmented Toggle)
+        tk.Frame(right, width=16, bg=_BG_HEADER).pack(side=pack_ind)
+        lang_box = tk.Frame(right, bg="#0d1526", padx=2, pady=1,
+                            highlightbackground=_BORDER, highlightthickness=1)
+        lang_box.pack(side=pack_ind, padx=(4, 0))
+
+        is_en = L.code == "en"
+        btn_en = tk.Button(
+            lang_box, text="EN",
+            font=("Consolas", 8, "bold" if is_en else "normal"),
+            fg=_BG if is_en else _DIM,
+            bg=_CYAN if is_en else "#0d1526",
+            activebackground=_CYAN, activeforeground=_BG,
+            relief="flat", bd=0, padx=6, pady=2, cursor="hand2",
+            command=lambda: self._switch_language("en")
+        )
+        btn_en.pack(side="left")
+
+        btn_ar = tk.Button(
+            lang_box, text="عربي",
+            font=_font(8, bold=not is_en, mono=False),
+            fg=_BG if not is_en else _DIM,
+            bg=_CYAN if not is_en else "#0d1526",
+            activebackground=_CYAN, activeforeground=_BG,
+            relief="flat", bd=0, padx=6, pady=2, cursor="hand2",
+            command=lambda: self._switch_language("ar")
+        )
+        btn_ar.pack(side="left")
 
         tk.Frame(self._root, height=1, bg=_BORDER).pack(fill="x", side="top")
 
     def _build_footer(self):
         L = _lang_mod.get()
+        rtl = L.is_rtl
         tk.Frame(self._root, height=1, bg=_BORDER).pack(fill="x", side="bottom")
         footer = tk.Frame(self._root, bg=_BG_HEADER, height=30)
         footer.pack(fill="x", side="bottom")
         footer.pack_propagate(False)
 
+        tip_side = "right" if rtl else "left"
+        ctrl_side = "left" if rtl else "right"
+        tip_align = "e" if rtl else "w"
+
         self._lbl_tip = tk.Label(footer, text=L.t("hud_tip_none"),
-                                 font=("Consolas", 8), fg=_DIM,
-                                 bg=_BG_HEADER, anchor="w")
-        self._lbl_tip.pack(side="left", padx=(16, 0), fill="x", expand=True)
+                                 font=_font(8, mono=False), fg=_DIM,
+                                 bg=_BG_HEADER, anchor=tip_align)
+        self._lbl_tip.pack(side=tip_side, padx=(0, 16) if rtl else (16, 0), fill="x", expand=True)
 
         # Restore Layout button
         tk.Button(footer, text=L.t("panel_restore"),
-                  font=("Consolas", 7, "bold"), fg=_DIM, bg=_BG_HEADER,
+                  font=_font(7, bold=True, mono=False), fg=_DIM, bg=_BG_HEADER,
                   activebackground=_BG_HEADER, activeforeground=_CYAN,
                   relief="flat", bd=0, cursor="hand2",
                   command=self._restore_layout
-                  ).pack(side="right", padx=(8, 16))
+                  ).pack(side=ctrl_side, padx=(16, 8) if rtl else (8, 16))
 
         self._lbl_cam_pos = tk.Label(footer, text=L.t("hud_cam_front"),
-                                     font=("Consolas", 8, "bold"),
+                                     font=_font(8, bold=True, mono=False),
                                      fg=_DIM, bg=_BG_HEADER)
-        self._lbl_cam_pos.pack(side="right", padx=(8, 0))
+        self._lbl_cam_pos.pack(side=ctrl_side, padx=(0, 8) if rtl else (8, 0))
 
         self._lbl_kb_status = tk.Label(footer, text=L.t("hud_kb_off"),
-                                       font=("Consolas", 8, "bold"),
+                                       font=_font(8, bold=True, mono=False),
                                        fg=_DIM, bg=_BG_HEADER)
-        self._lbl_kb_status.pack(side="right", padx=(8, 0))
+        self._lbl_kb_status.pack(side=ctrl_side, padx=(0, 8) if rtl else (8, 0))
 
     def _build_content(self):
+        L = _lang_mod.get()
+        rtl = L.is_rtl
+        main_side = "right" if rtl else "left"
+        sec_side = "left" if rtl else "right"
+
         content = tk.Frame(self._root, bg=_BG)
         content.pack(fill="both", expand=True)
 
-        # ── Left sidebar ──────────────────────────────────────────────────────
+        # ── Primary sidebar (Controls & Status) ──────────────────────────────
         left_sb = tk.Frame(content, bg=_CARD, width=220)
-        left_sb.pack(side="left", fill="y")
+        left_sb.pack(side=main_side, fill="y")
         left_sb.pack_propagate(False)
 
         sec_b = _DetachableSection(self, left_sb, "status",
-                                   _lang_mod.get().t("panel_status_title"),
+                                   L.t("panel_status_title"),
                                    self._build_status_panel, 260, 200)
         sec_b.frame.pack(fill="x")
         self._sections["status"] = sec_b
@@ -515,28 +612,28 @@ class UIManager:
         tk.Frame(left_sb, height=1, bg=_BORDER).pack(fill="x", padx=12, pady=4)
 
         sec_f = _DetachableSection(self, left_sb, "controls",
-                                   _lang_mod.get().t("panel_controls_title"),
+                                   L.t("panel_controls_title"),
                                    self._build_controls_panel, 260, 320)
         sec_f.frame.pack(fill="x")
         self._sections["controls"] = sec_f
 
         # Spacer + fixed bottom buttons
         tk.Frame(left_sb, bg=_CARD).pack(fill="both", expand=True)
-        self._make_button(left_sb, _lang_mod.get().t("panel_restore"),
+        self._make_button(left_sb, L.t("panel_restore"),
                           _DIMMER, self._restore_layout, 12)
-        self._make_button(left_sb, _lang_mod.get().t("panel_quit"),
+        self._make_button(left_sb, L.t("panel_quit"),
                           _RED, self._on_quit_click, 12)
         tk.Frame(left_sb, height=8, bg=_CARD).pack()
 
-        tk.Frame(content, width=1, bg=_BORDER).pack(side="left", fill="y")
+        tk.Frame(content, width=1, bg=_BORDER).pack(side=main_side, fill="y")
 
-        # ── Right sidebar ─────────────────────────────────────────────────────
+        # ── Secondary sidebar (Monitoring: Gesture, Activity, Notif) ─────────
         right_sb = tk.Frame(content, bg=_CARD, width=230)
-        right_sb.pack(side="right", fill="y")
+        right_sb.pack(side=sec_side, fill="y")
         right_sb.pack_propagate(False)
 
         sec_c = _DetachableSection(self, right_sb, "gesture",
-                                   _lang_mod.get().t("panel_gesture_title"),
+                                   L.t("panel_gesture_title"),
                                    self._build_gesture_panel, 280, 200)
         sec_c.frame.pack(fill="x")
         self._sections["gesture"] = sec_c
@@ -544,7 +641,7 @@ class UIManager:
         tk.Frame(right_sb, height=1, bg=_BORDER).pack(fill="x", padx=12, pady=4)
 
         sec_d = _DetachableSection(self, right_sb, "actions",
-                                   _lang_mod.get().t("panel_actions_title"),
+                                   L.t("panel_actions_title"),
                                    self._build_actions_panel, 280, 180)
         sec_d.frame.pack(fill="x")
         self._sections["actions"] = sec_d
@@ -552,19 +649,19 @@ class UIManager:
         tk.Frame(right_sb, height=1, bg=_BORDER).pack(fill="x", padx=12, pady=4)
 
         sec_e = _DetachableSection(self, right_sb, "notif",
-                                   _lang_mod.get().t("panel_notif_title"),
+                                   L.t("panel_notif_title"),
                                    self._build_notif_panel, 320, 200)
         sec_e.frame.pack(fill="both", expand=True)
         self._sections["notif"] = sec_e
 
-        tk.Frame(content, width=1, bg=_BORDER).pack(side="right", fill="y")
+        tk.Frame(content, width=1, bg=_BORDER).pack(side=sec_side, fill="y")
 
         # ── Center: Camera ────────────────────────────────────────────────────
         center = tk.Frame(content, bg="#000000")
         center.pack(fill="both", expand=True)
 
         sec_a = _DetachableSection(self, center, "camera",
-                                   _lang_mod.get().t("panel_cam_title"),
+                                   L.t("panel_cam_title"),
                                    self._build_camera_panel, 480, 360)
         sec_a.frame.pack(fill="both", expand=True)
         self._sections["camera"] = sec_a
@@ -605,17 +702,23 @@ class UIManager:
         self._btn_pause = self._make_button(
             parent, L.t("panel_pause"), _CYAN, self._on_pause_click, pad)
 
+        lang_target = "ar" if L.code == "en" else "en"
+        lang_label = "🌐 العربية (Arabic)" if L.code == "en" else "🌐 English (الإنجليزية)"
+        self._make_button(parent, lang_label, _INDIGO,
+                          lambda: self._switch_language(lang_target), pad)
+
         # ── Dwell slider ──────────────────────────────────────────────────────
         tk.Frame(parent, height=1, bg=_BORDER).pack(fill="x", padx=pad, pady=6)
 
+        align = "e" if L.is_rtl else "w"
         dwell_hdr = tk.Frame(parent, bg=_CARD)
         dwell_hdr.pack(fill="x", padx=pad)
         tk.Label(dwell_hdr, text=L.t("panel_dwell_delay"),
-                 font=("Consolas", 8, "bold"), fg=_AMBER, bg=_CARD
-                 ).pack(anchor="w")
+                 font=_font(8, bold=True, mono=False), fg=_AMBER, bg=_CARD
+                 ).pack(anchor=align)
         tk.Label(dwell_hdr, text=L.t("panel_dwell_time"),
-                 font=("Consolas", 7), fg=_DIMMER, bg=_CARD
-                 ).pack(anchor="w")
+                 font=_font(7, mono=False), fg=_DIMMER, bg=_CARD
+                 ).pack(anchor=align)
 
         cur = float(self._state.get("dwell_sec", 1.5))
         self._lbl_dwell_val = tk.Label(
@@ -635,7 +738,10 @@ class UIManager:
 
     def _build_gesture_panel(self, parent):
         L = _lang_mod.get()
+        rtl = L.is_rtl
         pad = 10
+        align = "e" if rtl else "w"
+        justify = "right" if rtl else "left"
 
         self._gesture_bar = tk.Canvas(parent, height=3, bg="#1a1a2e",
                                       highlightthickness=0)
@@ -644,47 +750,52 @@ class UIManager:
             0, 0, 0, 3, fill=_DIMMER, outline="")
 
         self._lbl_gesture = tk.Label(parent, text=L.t("hud_none"),
-                                     font=("Consolas", 13, "bold"),
-                                     fg=_DIMMER, bg=_CARD, anchor="w")
+                                     font=_font(12, bold=True, mono=False),
+                                     fg=_DIMMER, bg=_CARD, anchor=align)
         self._lbl_gesture.pack(fill="x", padx=pad)
 
         self._lbl_gesture_tip = tk.Label(
-            parent, text=L.t("hud_tip_none"), font=("Consolas", 8),
-            fg=_DIM, bg=_CARD, anchor="w", wraplength=200, justify="left")
+            parent, text=L.t("hud_tip_none"), font=_font(8, mono=False),
+            fg=_DIM, bg=_CARD, anchor=align, wraplength=200, justify=justify)
         self._lbl_gesture_tip.pack(fill="x", padx=pad, pady=(2, 8))
 
         # Dwell progress
         df = tk.Frame(parent, bg=_CARD)
         df.pack(fill="x", padx=pad)
         tk.Label(df, text="DWELL", font=("Consolas", 7, "bold"),
-                 fg=_DIMMER, bg=_CARD).pack(anchor="w")
+                 fg=_DIMMER, bg=_CARD).pack(anchor=align)
         self._dwell_canvas = tk.Canvas(df, height=6, bg="#1a1a2e",
                                        highlightthickness=0)
         self._dwell_canvas.pack(fill="x", pady=(2, 0))
         self._dwell_fill = self._dwell_canvas.create_rectangle(
             0, 0, 0, 6, fill=_DIMMER, outline="")
-        self._lbl_dwell_time = tk.Label(parent, text="", font=("Consolas", 8),
-                                        fg=_DIM, bg=_CARD, anchor="w")
+        self._lbl_dwell_time = tk.Label(parent, text="", font=_font(8, mono=False),
+                                        fg=_DIM, bg=_CARD, anchor=align)
         self._lbl_dwell_time.pack(fill="x", padx=pad, pady=(2, 0))
 
     def _build_actions_panel(self, parent):
+        L = _lang_mod.get()
+        align = "e" if L.is_rtl else "w"
         pad = 10
         self._action_labels = []
         for _ in range(6):
-            lbl = tk.Label(parent, text="", font=("Consolas", 8),
-                           fg=_DIMMER, bg=_CARD, anchor="w")
+            lbl = tk.Label(parent, text="", font=_font(8, mono=False),
+                           fg=_DIMMER, bg=_CARD, anchor=align)
             lbl.pack(fill="x", padx=pad)
             self._action_labels.append(lbl)
         # Re-render existing log
         self._render_action_log()
 
     def _build_notif_panel(self, parent):
+        L = _lang_mod.get()
+        align = "e" if L.is_rtl else "w"
+        justify = "right" if L.is_rtl else "left"
         pad = 10
         self._notif_labels = []
         for _ in range(8):
-            lbl = tk.Label(parent, text="", font=("Consolas", 7),
-                           fg=_DIMMER, bg=_CARD, anchor="w",
-                           wraplength=200, justify="left")
+            lbl = tk.Label(parent, text="", font=_font(7, mono=False),
+                           fg=_DIMMER, bg=_CARD, anchor=align,
+                           wraplength=200, justify=justify)
             lbl.pack(fill="x", padx=pad, pady=0)
             self._notif_labels.append(lbl)
         self._render_notif_log()
@@ -695,28 +806,37 @@ class UIManager:
 
     @staticmethod
     def _section_label(parent, text, padx=12):
-        tk.Label(parent, text=text, font=("Consolas", 8, "bold"),
-                 fg=_CYAN, bg=_CARD, anchor="w"
+        L = _lang_mod.get()
+        align = "e" if L.is_rtl else "w"
+        tk.Label(parent, text=text, font=_font(8, bold=True, mono=False),
+                 fg=_CYAN, bg=_CARD, anchor=align
                  ).pack(fill="x", padx=padx, pady=(10, 4))
 
     @staticmethod
     def _status_row(parent, label, value, color):
+        L = _lang_mod.get()
+        rtl = L.is_rtl
+        side = "right" if rtl else "left"
+        anchor = "e" if rtl else "w"
         row = tk.Frame(parent, bg=_CARD)
         row.pack(fill="x", pady=1)
-        tk.Label(row, text=label, font=("Consolas", 8),
-                 fg=_DIM, bg=_CARD, width=12, anchor="w").pack(side="left")
-        val = tk.Label(row, text=value, font=("Consolas", 8, "bold"),
-                       fg=color, bg=_CARD, anchor="w")
-        val.pack(side="left")
+        tk.Label(row, text=label, font=_font(8, mono=False),
+                 fg=_DIM, bg=_CARD, width=14 if rtl else 12, anchor=anchor).pack(side=side)
+        val = tk.Label(row, text=value, font=_font(8, bold=True, mono=False),
+                       fg=color, bg=_CARD, anchor=anchor)
+        val.pack(side=side, padx=(4, 4))
         return val
 
     def _make_button(self, parent, text, color, command, padx=12):
-        btn = tk.Button(parent, text=f"  {text}",
-                        font=("Consolas", 10, "bold"),
+        L = _lang_mod.get()
+        rtl = L.is_rtl
+        anchor = "e" if rtl else "w"
+        btn = tk.Button(parent, text=f"  {text}  ",
+                        font=_font(10, bold=True, mono=False),
                         fg=_BG, bg=color, activebackground=color,
                         activeforeground=_BG, relief="flat", bd=0,
-                        padx=0, pady=5, cursor="hand2",
-                        command=command, anchor="w")
+                        padx=6 if rtl else 0, pady=5, cursor="hand2",
+                        command=command, anchor=anchor)
         btn.pack(fill="x", padx=padx, pady=3)
         lighter = self._lighten(color)
         btn.bind("<Enter>", lambda e, b=btn, c=lighter: b.configure(bg=c))
@@ -863,7 +983,7 @@ class UIManager:
                     self._btn_pause.bind("<Leave>",
                         lambda e, b=self._btn_pause, c=_GREEN: b.configure(bg=c))
                 if self._lbl_header_status:
-                    self._lbl_header_status.configure(text="PAUSED", fg=_RED)
+                    self._lbl_header_status.configure(text=L.t("hud_paused"), fg=_RED)
                 if self._header_status_dot:
                     self._header_status_dot.configure(fg=_RED)
             else:
@@ -879,7 +999,7 @@ class UIManager:
                     self._btn_pause.bind("<Leave>",
                         lambda e, b=self._btn_pause, c=_CYAN: b.configure(bg=c))
                 if self._lbl_header_status:
-                    self._lbl_header_status.configure(text="ACTIVE", fg=_GREEN)
+                    self._lbl_header_status.configure(text=L.t("hud_active"), fg=_GREEN)
                 if self._header_status_dot:
                     self._header_status_dot.configure(fg=_GREEN)
 
@@ -1018,12 +1138,15 @@ class UIManager:
         self._flash_job = None
 
     def _render_action_log(self):
+        L = _lang_mod.get()
+        rtl = L.is_rtl
         _fade = [_GREEN, "#60a0a0", _DIM, _DIMMER, _DIMMER, _DIMMER]
         for i, lbl in enumerate(self._action_labels):
             try:
                 if i < len(self._action_log):
+                    prefix = "\u25c2 " if rtl else "\u25b8 "
                     lbl.configure(
-                        text=f"\u25b8 {self._action_log[i]}",
+                        text=f"{prefix}{self._action_log[i]}",
                         fg=_fade[min(i, len(_fade) - 1)])
                 else:
                     lbl.configure(text="")
@@ -1037,12 +1160,15 @@ class UIManager:
         self._render_notif_log()
 
     def _render_notif_log(self):
+        L = _lang_mod.get()
+        rtl = L.is_rtl
         for i, lbl in enumerate(self._notif_labels):
             try:
                 if i < len(self._notif_log):
                     ts, sev, msg = self._notif_log[i]
                     col = _SEV_COLORS.get(sev, _DIM)
-                    lbl.configure(text=f"{ts}  {msg}", fg=col)
+                    text_str = f"{msg}  [{ts}]" if rtl else f"[{ts}]  {msg}"
+                    lbl.configure(text=text_str, fg=col)
                 else:
                     lbl.configure(text="")
             except Exception:
@@ -1058,12 +1184,11 @@ class UIManager:
             return
 
         L = _lang_mod.get()
-        is_tr = L.code == "tr"
+        rtl = L.is_rtl
 
         win = tk.Toplevel(self._root)
         self._help_win = win
-        win.title("KYVORA \u2014 " + (
-            "Nasil Kullanilir?" if is_tr else "How To Use?"))
+        win.title(f"KYVORA \u2014 {L.t('help_title')}")
         win.configure(bg=_BG)
         win.resizable(False, False)
         win.transient(self._root)
@@ -1073,7 +1198,7 @@ class UIManager:
         except Exception:
             pass
 
-        ww, wh = 500, 820
+        ww, wh = 520, 820
         rx = self._root.winfo_x()
         ry = self._root.winfo_y()
         rw = self._root.winfo_width()
@@ -1082,10 +1207,10 @@ class UIManager:
         y = ry + (rh - wh) // 2
         win.geometry(f"{ww}x{wh}+{max(0, x)}+{max(0, y)}")
 
-        f_head = ("Consolas", 14, "bold")
-        f_lbl  = ("Consolas", 10, "bold")
-        f_sm   = ("Consolas", 9)
-        f_desc = ("Consolas", 8)
+        f_head = _font(14, bold=True, mono=False)
+        f_lbl  = _font(10, bold=True, mono=False)
+        f_sm   = _font(9, mono=False)
+        f_desc = _font(8, mono=False)
 
         canvas = tk.Canvas(win, bg=_BG, highlightthickness=0)
         canvas.pack(fill="both", expand=True)
@@ -1098,125 +1223,57 @@ class UIManager:
                             int(-1 * (e.delta / 120)), "units"))
 
         pad = 14
-        tk.Label(inner, text="KYVORA \u2014 " + (
-            "NASIL KULLANILIR?" if is_tr else "HOW TO USE?"),
+        tk.Label(inner, text=f"KYVORA \u2014 {L.t('help_title')}",
                  font=f_head, fg=_CYAN, bg=_BG, pady=12).pack(fill="x", padx=pad)
 
         df = tk.Frame(inner, bg=_CARD, padx=10, pady=8)
         df.pack(fill="x", padx=pad, pady=(0, 6))
-        tk.Label(df, text="DWELL " + ("SISTEMI" if is_tr else "SYSTEM"),
-                 font=f_lbl, fg=_AMBER, bg=_CARD).pack(anchor="w")
-        dwell_txt = (
-            "Isaret parmagi haric tum jestler bekleme sistemi kullanir.\n"
-            "Jesti yap ve halka dolana kadar bekle \u2014 islem o zaman tetiklenir.\n"
-            "Bekleme suresini kontrol panelindeki kaydirici ile ayarlayabilirsiniz."
-            if is_tr else
-            "All gestures except pointing use the dwell system.\n"
-            "Hold the gesture until the ring fills \u2014 action fires then.\n"
-            "Adjust the dwell time with the slider in the Controls panel."
-        )
-        tk.Label(df, text=dwell_txt, font=f_desc, fg=_DIM, bg=_CARD,
-                 justify="left").pack(anchor="w")
+        align = "e" if rtl else "w"
+        justify = "right" if rtl else "left"
+        tk.Label(df, text=L.t("help_dwell_title"),
+                 font=f_lbl, fg=_AMBER, bg=_CARD).pack(anchor=align)
+        tk.Label(df, text=L.t("help_dwell_desc"), font=f_desc, fg=_DIM, bg=_CARD,
+                 justify=justify).pack(anchor=align, fill="x")
 
-        if is_tr:
-            items = [
-                ("[1]", "IMLEC", "Isaret Parmagi",
-                 "Sadece isaret parmagi yukari, diger parmaklar kapali.\n"
-                 "Fareyi dogrudan hareket ettirir \u2014 bekleme yok.", _GREEN),
-                ("[2]", "SOL TIK", "Pinch",
-                 "Basparmak ucu ile isaret parmagi ucunu birlestir.\n"
-                 "Halka dolunca sol tik yapar.", _AMBER),
-                ("[3]", "SAG TIK", "V Isareti",
-                 "Isaret ve orta parmak acik, yuzuk ve serce kapali.\n"
-                 "Halka dolunca sag tik yapar.", _BLUE),
-                ("[4]", "KAYDIRMA", "4 Parmak",
-                 "Isaret, orta, yuzuk, serce acik \u2014 basparmak kapali.\n"
-                 "Halka dolunca aktif: el yukari/asagi hareketiyle kaydir.", _PURPLE),
-                ("[5]", "KLAVYE", "3 Parmak",
-                 "Isaret, orta, yuzuk acik \u2014 serce ve basparmak kapali.\n"
-                 "Halka dolunca ekran klavyesini acar/kapatir.", _PINK),
-                ("[6]", "PENCERE", "Yumruk",
-                 "Tum parmaklar kapali, siki yumruk.\n"
-                 "Halka dolunca pencereyi one/arkaya alir.", _RED),
-                ("[7]", "ALT+TAB", "Kurt",
-                 "Orta ve yuzuk parmak basparmaga deger,\n"
-                 "isaret ve serce duz yukari.\n"
-                 "Halka dolunca pencere degistirir.", _ORANGE),
-                ("[8]", "BASILI TUT", "Basparmak Yukari",
-                 "Elini yumruk yapip basparmagi yukari tut.\n"
-                 "Halka dolunca sol tus basili kalir.\n"
-                 "Elini hareket ettirerek surukle.\n"
-                 "Baska jest yapinca birakir.", _GOLD),
-                ("[9]", "DURAKLAT / DEVAM", "Avuc Acma",
-                 "Bes parmak acik avuc gosterin.\n"
-                 "1 saniye bekleyin \u2014 jest kontrolu duraklar.\n"
-                 "Ayni hareketi tekrar yapinca devam eder.\n"
-                 "Duraklat veya Devam ettikten sonra elinizi\n"
-                 "nötr pozisyona getirin (yumruk veya kameradan\n"
-                 "cikarin). Surekli avuc acik tutmak tekrarli\n"
-                 "gecis yapmaz.\n"
-                 "GUI butonuyla da duraklat/devam edebilirsiniz.", _CYAN),
-            ]
-        else:
-            items = [
-                ("[1]", "CURSOR", "Index Finger",
-                 "Only index finger raised, others closed.\n"
-                 "Moves mouse directly \u2014 no dwell needed.", _GREEN),
-                ("[2]", "L-CLICK", "Pinch",
-                 "Bring thumb tip and index fingertip together.\n"
-                 "When ring fills: left click.", _AMBER),
-                ("[3]", "R-CLICK", "V Sign",
-                 "Index and middle up, ring and pinky closed.\n"
-                 "When ring fills: right click.", _BLUE),
-                ("[4]", "SCROLL", "4 Fingers",
-                 "Index, middle, ring, pinky up \u2014 thumb closed.\n"
-                 "When ready: move hand up/down to scroll.", _PURPLE),
-                ("[5]", "KEYBOARD", "3 Fingers",
-                 "Index, middle, ring up \u2014 pinky and thumb closed.\n"
-                 "When ring fills: toggles on-screen keyboard.", _PINK),
-                ("[6]", "WINDOW", "Fist",
-                 "All fingers closed, tight fist.\n"
-                 "When ring fills: toggles window always-on-top.", _RED),
-                ("[7]", "ALT+TAB", "Wolf",
-                 "Middle and ring touch thumb,\n"
-                 "index and pinky raised straight up.\n"
-                 "When ring fills: switches windows.", _ORANGE),
-                ("[8]", "HOLD CLICK", "Thumbs Up",
-                 "Close all fingers into a fist, then raise only\n"
-                 "your thumb. When ring fills: left button held.\n"
-                 "Move your hand to drag. Change gesture to release.", _GOLD),
-                ("[9]", "PAUSE / RESUME", "Open Palm",
-                 "Show all five fingers open.\n"
-                 "Hold for 1 second \u2014 gesture control pauses.\n"
-                 "Repeat the same gesture to resume.\n"
-                 "After activating Pause or Resume, return your\n"
-                 "hand to a neutral position (e.g. close fist or\n"
-                 "leave the camera) before performing the Open\n"
-                 "Palm gesture again. Holding the gesture\n"
-                 "continuously will not repeatedly toggle.\n"
-                 "You can also use the Pause/Resume button.", _CYAN),
-            ]
+        items = [
+            ("[1]", L.t("help_1_action"), L.t("help_1_pose"), L.t("help_1_desc"), _GREEN),
+            ("[2]", L.t("help_2_action"), L.t("help_2_pose"), L.t("help_2_desc"), _AMBER),
+            ("[3]", L.t("help_3_action"), L.t("help_3_pose"), L.t("help_3_desc"), _BLUE),
+            ("[4]", L.t("help_4_action"), L.t("help_4_pose"), L.t("help_4_desc"), _PURPLE),
+            ("[5]", L.t("help_5_action"), L.t("help_5_pose"), L.t("help_5_desc"), _PINK),
+            ("[6]", L.t("help_6_action"), L.t("help_6_pose"), L.t("help_6_desc"), _RED),
+            ("[7]", L.t("help_7_action"), L.t("help_7_pose"), L.t("help_7_desc"), _ORANGE),
+            ("[8]", L.t("help_8_action"), L.t("help_8_pose"), L.t("help_8_desc"), _GOLD),
+            ("[9]", L.t("help_9_action"), L.t("help_9_pose"), L.t("help_9_desc"), _CYAN),
+        ]
 
         for num, action, pose, desc, color in items:
             card = tk.Frame(inner, bg=_CARD, padx=12, pady=8)
             card.pack(fill="x", padx=pad, pady=2)
             top = tk.Frame(card, bg=_CARD)
             top.pack(fill="x")
-            tk.Label(top, text=num, font=f_sm, fg=_DIM, bg=_CARD,
-                     width=4, anchor="w").pack(side="left")
-            tk.Label(top, text=action, font=f_lbl, fg=color, bg=_CARD,
-                     width=12, anchor="w").pack(side="left")
-            tk.Label(top, text=pose, font=f_sm, fg=_WHITE, bg=_CARD,
-                     anchor="w").pack(side="left")
+            if rtl:
+                tk.Label(top, text=num, font=f_sm, fg=_DIM, bg=_CARD,
+                         width=4, anchor="e").pack(side="right")
+                tk.Label(top, text=action, font=f_lbl, fg=color, bg=_CARD,
+                         width=14, anchor="e").pack(side="right", padx=(4, 4))
+                tk.Label(top, text=pose, font=f_sm, fg=_WHITE, bg=_CARD,
+                         anchor="e").pack(side="right")
+            else:
+                tk.Label(top, text=num, font=f_sm, fg=_DIM, bg=_CARD,
+                         width=4, anchor="w").pack(side="left")
+                tk.Label(top, text=action, font=f_lbl, fg=color, bg=_CARD,
+                         width=12, anchor="w").pack(side="left")
+                tk.Label(top, text=pose, font=f_sm, fg=_WHITE, bg=_CARD,
+                         anchor="w").pack(side="left")
             tk.Label(card, text=desc, font=f_desc, fg="#8888aa",
-                     bg=_CARD, justify="left", anchor="w",
-                     wraplength=440).pack(fill="x", pady=(4, 0))
+                     bg=_CARD, justify=justify, anchor=align,
+                     wraplength=460).pack(fill="x", pady=(4, 0))
             tk.Frame(card, height=1, bg=_BORDER).pack(fill="x", pady=(6, 0))
 
         tk.Frame(inner, height=20, bg=_BG).pack()
 
-        close_lbl = "Kapat" if is_tr else "Close"
-        tk.Button(win, text=close_lbl, font=("Consolas", 10, "bold"),
+        tk.Button(win, text=L.t("help_close"), font=_font(10, bold=True, mono=False),
                   fg=_BG, bg=_CYAN, activebackground="#0891b2",
                   relief="flat", bd=0, padx=20, pady=6,
                   cursor="hand2", command=win.destroy).pack(pady=8)
@@ -1254,7 +1311,7 @@ class UIManager:
             self.on_dwell_change(v)
 
     # ══════════════════════════════════════════════════════════════════════════
-    #  Window Management
+    #  Window Management & In-App Language Switching
     # ══════════════════════════════════════════════════════════════════════════
 
     def _restore_layout(self):
@@ -1262,6 +1319,67 @@ class UIManager:
         for sec in self._sections.values():
             if sec.is_floating:
                 sec.dock()
+
+    def _switch_language(self, code: str) -> None:
+        """Switch application language dynamically at runtime."""
+        if _lang_mod.get().code == code:
+            return
+        _lang_mod.set_lang(code, self._cfg)
+        if self.on_lang_change:
+            try:
+                self.on_lang_change(code)
+            except Exception:
+                pass
+        self._rebuild_ui()
+
+    def _rebuild_ui(self) -> None:
+        """Reconstruct entire UI in place with new language and direction."""
+        if not self._root or not self._running:
+            return
+
+        # 1. Dock floating sections so toplevels are cleaned up
+        for sec in list(self._sections.values()):
+            if sec.is_floating:
+                sec.dock()
+        self._sections.clear()
+
+        # 2. Null panel widget references
+        for pid in ("camera", "status", "gesture", "actions", "notif", "controls"):
+            self._null_panel_refs(pid)
+
+        self._cal_dot = None
+        self._lbl_cal = None
+        self._lbl_fps = None
+        self._cam_dot = None
+        self._lbl_cam_status = None
+        self._header_status_dot = None
+        self._lbl_header_status = None
+        self._lbl_tip = None
+        self._lbl_cam_pos = None
+        self._lbl_kb_status = None
+
+        # 3. Destroy all existing widgets in root
+        for child in self._root.winfo_children():
+            child.destroy()
+
+        # 4. Rebuild Header, Footer, and Content
+        self._build_header()
+        self._build_footer()
+        self._build_content()
+
+        # 5. Refresh state & logs
+        self._refresh_state()
+        self._render_action_log()
+        self._render_notif_log()
+
+        # 6. Re-open help dialog if it was open
+        if self._help_win and self._help_win.winfo_exists():
+            self._help_win.destroy()
+            self._open_help()
+
+        # 7. Add notification
+        L = _lang_mod.get()
+        self.add_notification(L.t("notify_lang_changed"), "info")
 
     # ══════════════════════════════════════════════════════════════════════════
     #  Utilities

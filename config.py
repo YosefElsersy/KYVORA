@@ -25,6 +25,9 @@ _DEFAULTS: dict = {
     "scroll_speed":   2,
     "scroll_deadzone":20,
 
+    # Language
+    "language": "en",
+
     # Ses
     "sound_enabled": True,
 

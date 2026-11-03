@@ -82,13 +82,13 @@ class ControlPanel:
 
     def _run(self) -> None:
         L = _lang_mod.get()
-        is_tr = L.code == "tr"
+        rtl = L.is_rtl
 
         root = tk.Tk()
         with self._lock:
             self._root = root
 
-        root.title("GestureMouse")
+        root.title("KYVORA")
         root.configure(bg=_BG)
         root.resizable(False, False)
         root.attributes("-topmost", True)
@@ -101,7 +101,7 @@ class ControlPanel:
         # Ekranin sol tarafina konumlandir
         root.update_idletasks()
         scr_h = root.winfo_screenheight()
-        win_w, win_h = 220, 520
+        win_w, win_h = 240, 520
         root.geometry(f"{win_w}x{win_h}+10+{(scr_h - win_h)//2}")
 
         # Kapatma protokolu → programi durdur
@@ -110,9 +110,9 @@ class ControlPanel:
         pad = 12
 
         # Baslik
-        tk.Label(root, text="GestureMouse",
-                 font=("Consolas", 12, "bold"),
-                 fg=_GREEN, bg=_BG, pady=10).pack(fill="x")
+        tk.Label(root, text="KYVORA",
+                 font=("Consolas", 14, "bold"),
+                 fg=_CYAN, bg=_BG, pady=10).pack(fill="x")
 
         tk.Frame(root, height=1, bg=_BORDER).pack(fill="x", padx=pad)
 
@@ -123,28 +123,30 @@ class ControlPanel:
         def _stat_row(label_text, var_text, color):
             row = tk.Frame(state_frame, bg=_CARD)
             row.pack(fill="x", pady=1)
+            side = "right" if rtl else "left"
+            anchor = "e" if rtl else "w"
             tk.Label(row, text=label_text, font=("Consolas", 8),
-                     fg=_DIM, bg=_CARD, width=10, anchor="w").pack(side="left")
+                     fg=_DIM, bg=_CARD, width=12, anchor=anchor).pack(side=side)
             lbl = tk.Label(row, text=var_text, font=("Consolas", 8, "bold"),
-                           fg=color, bg=_CARD, anchor="w")
-            lbl.pack(side="left")
+                           fg=color, bg=_CARD, anchor=anchor)
+            lbl.pack(side=side)
             return lbl
 
-        hand_lbl = "Sol El" if is_tr else "Left Hand"
-        cal_lbl  = "Tamam"  if is_tr else "Done"
-        self._lbl_hand  = _stat_row("El:"          if is_tr else "Hand:",   hand_lbl, _BLUE)
-        self._lbl_cal   = _stat_row("Kal.:"        if is_tr else "Cal.:",   cal_lbl,  _GREEN)
-        self._lbl_fps   = _stat_row("FPS:",                                  "0",     _DIM)
-        self._lbl_kb    = _stat_row("Klavye:"      if is_tr else "Keyboard:","--",    _DIM)
-        self._lbl_cam   = _stat_row("Kamera:"      if is_tr else "Camera:",  "--",    _DIM)
-        self._lbl_dwell = _stat_row("Bekleme:"     if is_tr else "Dwell:",   "--",    _AMBER)
+        hand_lbl = L.t("hand_left")
+        cal_lbl  = L.t("startup_cal_ok")
+        self._lbl_hand  = _stat_row(L.t("panel_hand_lbl"),   hand_lbl, _BLUE)
+        self._lbl_cal   = _stat_row(L.t("panel_cal_lbl"),    cal_lbl,  _GREEN)
+        self._lbl_fps   = _stat_row("FPS:",                  "0",      _DIM)
+        self._lbl_kb    = _stat_row(L.t("panel_kb_lbl"),     "--",     _DIM)
+        self._lbl_cam   = _stat_row(L.t("panel_cam_lbl"),    "--",     _DIM)
+        self._lbl_dwell = _stat_row(L.t("panel_dwell_lbl"),  "--",     _AMBER)
 
         tk.Frame(root, height=1, bg=_BORDER).pack(fill="x", padx=pad, pady=8)
 
         # Buton olusturma yardimcisi
         def _btn(parent, text, color, cmd, pady=4):
             b = tk.Button(
-                parent, text=text,
+                parent, text=f"  {text}  ",
                 font=("Consolas", 10, "bold"),
                 fg=_BG, bg=color,
                 activebackground=color,
@@ -153,6 +155,7 @@ class ControlPanel:
                 padx=0, pady=pady,
                 cursor="hand2",
                 command=cmd,
+                anchor="e" if rtl else "w",
             )
             b.pack(fill="x", padx=pad, pady=3)
             # Hover efekti
@@ -165,16 +168,10 @@ class ControlPanel:
             return b
 
         # Ana butonlar
-        if is_tr:
-            _btn(root, "  Kalibrasyon",  _AMBER,  self._click_calibrate)
-            _btn(root, "  El Degistir",  _BLUE,   self._click_hand)
-            _btn(root, "  Nasil Kullanilir?", _PURPLE, self._click_help, pady=6)
-            _btn(root, "  Kapat",        _RED,    self._on_quit)
-        else:
-            _btn(root, "  Calibration",  _AMBER,  self._click_calibrate)
-            _btn(root, "  Switch Hand",  _BLUE,   self._click_hand)
-            _btn(root, "  How To Use?",  _PURPLE, self._click_help, pady=6)
-            _btn(root, "  Quit",         _RED,    self._on_quit)
+        _btn(root, L.t("panel_calibrate"), _AMBER,  self._click_calibrate)
+        _btn(root, L.t("panel_hand"),      _BLUE,   self._click_hand)
+        _btn(root, L.t("panel_how_to"),    _PURPLE, self._click_help, pady=6)
+        _btn(root, L.t("panel_quit"),      _RED,    self._on_quit)
 
         # Periyodik guncelleme
         self._schedule_update(root)
@@ -197,7 +194,6 @@ class ControlPanel:
         try:
             state = self._get_state()
             L     = _lang_mod.get()
-            is_tr = L.code == "tr"
 
             if self._lbl_hand:
                 hand = (L.t("hand_left") if state.get("left_hand")
