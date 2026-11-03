@@ -1,0 +1,22 @@
+{
+  "cam_index": 0,
+  "frame_w": 640,
+  "frame_h": 480,
+  "show_cam": true,
+  "low_perf": false,
+  "kalman_process_noise": 0.008,
+  "kalman_measurement_noise": 0.15,
+  "stable_n": 6,
+  "dwell_sec": 0.3,
+  "scroll_speed": 2,
+  "scroll_deadzone": 20,
+  "sound_enabled": true,
+  "dominant_hand": "right",
+  "calibrated": true,
+  "cal_x_min": 88,
+  "cal_x_max": 551,
+  "cal_y_min": 62,
+  "cal_y_max": 406,
+  "pinch_threshold": 0.241,
+  "language": "en"
+}
